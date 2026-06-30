@@ -1,0 +1,43 @@
+name: 🐛 Bug report
+description: Something isn't working in Sutra
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve **Sutra**! A few details make bugs much
+        faster to fix. Tip: the in-app **Settings → Email Support** option
+        pre-fills your app version and device for you.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to…
+        2. Tap…
+        3. See…
+  - type: dropdown
+    id: library
+    attributes:
+      label: Which library?
+      options:
+        - Kavita
+        - Calibre / calibre-web
+        - Project Gutenberg
+        - Other OPDS server
+        - Not applicable
+  - type: input
+    id: version
+    attributes:
+      label: Sutra version & device
+      description: From Settings → About (e.g. "1.0.0 (1)"), plus your device + iOS version.
+      placeholder: "1.0.0 (1) · iPhone 15, iOS 18.4"
+    validations:
+      required: true
