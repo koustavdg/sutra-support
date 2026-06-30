@@ -1,0 +1,3 @@
+# Forces the structured Bug / Feature forms (no blank free-form issues).
+# No email contact link by design — feedback stays on GitHub.
+blank_issues_enabled: false
