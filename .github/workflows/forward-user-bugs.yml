@@ -1,0 +1,162 @@
+name: Forward user-submitted bugs
+
+on:
+  issues:
+    types:
+      - labeled
+
+permissions:
+  issues: read
+
+jobs:
+  forward-bug:
+    if: github.event.label.name == 'bug' || github.event.label.name == 'android-bug' || github.event.label.name == 'ios-bug'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue in Sutra repository
+        uses: actions/github-script@v7
+        with:
+          # SUTRA_REPO_TOKEN must have Issues: write access to koustavdg/sutra
+          # and Projects: write access to the koustavdg account.
+          github-token: ${{ secrets.SUTRA_REPO_TOKEN }}
+          script: |
+            const sourceIssue = context.payload.issue;
+            const targetOwner = 'koustavdg';
+            const targetRepo = 'sutra';
+            const sourceUrl = `${context.payload.repository.html_url}/issues/${sourceIssue.number}`;
+            const marker = `<!-- Forwarded from ${sourceUrl} -->`;
+            const sourceLabels = new Set(
+              (sourceIssue.labels || []).map(label => typeof label === 'string' ? label : label.name),
+            );
+
+            if (!sourceLabels.has('bug')) {
+              core.info(`Issue #${sourceIssue.number} does not have the bug label.`);
+              return;
+            }
+
+            const labels = ['bug', 'user-submitted-bug'];
+            if (sourceLabels.has('android-bug')) labels.push('android-bug');
+            if (sourceLabels.has('ios-bug')) labels.push('ios-bug');
+
+            const existing = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${targetOwner}/${targetRepo} is:issue "${marker}"`,
+            });
+
+            const managedLabels = ['bug', 'user-submitted-bug', 'android-bug', 'ios-bug'];
+            for (const label of managedLabels) {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+
+                await github.rest.issues.createLabel({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  name: label,
+                  color: label === 'bug' ? 'd73a4a' : 'fbca04',
+                });
+              }
+            }
+
+            if (existing.data.total_count > 0) {
+              const targetIssueNumber = existing.data.items[0].number;
+
+              for (const label of managedLabels) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: targetOwner,
+                    repo: targetRepo,
+                    issue_number: targetIssueNumber,
+                    name: label,
+                  });
+                } catch (error) {
+                  if (error.status !== 404) throw error;
+                }
+              }
+
+              await github.rest.issues.addLabels({
+                owner: targetOwner,
+                repo: targetRepo,
+                issue_number: targetIssueNumber,
+                labels,
+              });
+              core.info(`Updated labels on forwarded issue #${targetIssueNumber}.`);
+              return;
+            }
+
+            const created = await github.rest.issues.create({
+              owner: targetOwner,
+              repo: targetRepo,
+              title: `[User report] ${sourceIssue.title}`,
+              body: `${sourceIssue.body || '_No description provided._'}\n\n${marker}\nSource: ${sourceUrl}`,
+              labels,
+            });
+
+            const project = await github.graphql(
+              `query($login: String!, $number: Int!) {
+                user(login: $login) {
+                  projectV2(number: $number) {
+                    id
+                    fields(first: 100) {
+                      nodes {
+                        ... on ProjectV2SingleSelectField {
+                          id
+                          name
+                          options { id name }
+                        }
+                      }
+                    }
+                  }
+                }
+              }`,
+              { login: targetOwner, number: 1 },
+            );
+
+            const projectData = project.user.projectV2;
+            const statusField = projectData.fields.nodes.find(
+              field => field?.name === 'Status',
+            );
+            const todoOption = statusField?.options.find(
+              option => option.name === 'Todo',
+            );
+
+            if (!statusField || !todoOption) {
+              throw new Error('Could not find the Sutra project Status/Todo option.');
+            }
+
+            const item = await github.graphql(
+              `mutation($projectId: ID!, $contentId: ID!) {
+                addProjectV2ItemById(input: {
+                  projectId: $projectId
+                  contentId: $contentId
+                }) {
+                  item { id }
+                }
+              }`,
+              { projectId: projectData.id, contentId: created.data.node_id },
+            );
+
+            await github.graphql(
+              `mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                updateProjectV2ItemFieldValue(input: {
+                  projectId: $projectId
+                  itemId: $itemId
+                  fieldId: $fieldId
+                  value: { singleSelectOptionId: $optionId }
+                }) {
+                  projectV2Item { id }
+                }
+              }`,
+              {
+                projectId: projectData.id,
+                itemId: item.addProjectV2ItemById.item.id,
+                fieldId: statusField.id,
+                optionId: todoOption.id,
+              },
+            );
+
+            core.info(`Forwarded ${sourceUrl} to ${created.data.html_url}.`);
