@@ -4,6 +4,7 @@ on:
   issues:
     types:
       - labeled
+  workflow_dispatch:
 
 permissions:
   issues: read
@@ -20,7 +21,17 @@ jobs:
           # and Projects: write access to the koustavdg account.
           github-token: ${{ secrets.SUTRA_REPO_TOKEN }}
           script: |
-            const sourceIssue = context.payload.issue;
+            const sourceIssues = context.eventName === 'workflow_dispatch'
+              ? (await github.paginate(github.rest.issues.listForRepo, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  state: 'all',
+                  labels: 'bug',
+                  per_page: 100,
+                })).filter(issue => !issue.pull_request)
+              : [context.payload.issue];
+
+            for (const sourceIssue of sourceIssues) {
             const targetOwner = 'koustavdg';
             const targetRepo = 'sutra';
             const sourceUrl = `${context.payload.repository.html_url}/issues/${sourceIssue.number}`;
@@ -160,3 +171,4 @@ jobs:
             );
 
             core.info(`Forwarded ${sourceUrl} to ${created.data.html_url}.`);
+            }
