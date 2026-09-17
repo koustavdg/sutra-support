@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   forward-bug:
-    if: github.event.label.name == 'bug' || github.event.label.name == 'android-bug' || github.event.label.name == 'ios-bug'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'bug' || github.event.label.name == 'android-bug' || github.event.label.name == 'ios-bug'
     runs-on: ubuntu-latest
     steps:
       - name: Create issue in Sutra repository
